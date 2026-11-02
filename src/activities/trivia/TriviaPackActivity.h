@@ -35,6 +35,7 @@ class TriviaPackActivity final : public Activity {
   int difficulty_ = 0;
   int settingsRow_ = 0;
   int selectedOption_ = 0;
+  int lastBottomChoice_ = -1;
   int chosenOption_ = -1;
   int reasonSelection_ = 0;
   State reportReturnState_ = State::Quizmaster;

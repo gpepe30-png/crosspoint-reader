@@ -1102,6 +1102,9 @@ void WifiSelectionActivity::renderConnectionFailed(const Rect* screen, const The
 }
 
 void WifiSelectionActivity::onComplete(const bool connected) {
+  if (mappedInput.isPressed(MappedInputManager::Button::Back)) {
+    mappedInput.suppressNextRelease(MappedInputManager::Button::Back);
+  }
   ActivityResult result;
   result.isCancelled = !connected;
   if (connected) {

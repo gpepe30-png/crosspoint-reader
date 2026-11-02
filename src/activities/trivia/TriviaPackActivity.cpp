@@ -40,11 +40,13 @@ void drawOutlinedOption(const GfxRenderer& renderer, const Rect bounds, const ch
   if (correct) {
     renderer.fillRect(bounds.x, bounds.y, bounds.width, bounds.height, true);
   } else if (selected) {
+    renderer.fillRectDither(bounds.x + 2, bounds.y + 2, bounds.width - 4, bounds.height - 4, Color::LightGray);
     renderer.drawRect(bounds.x, bounds.y, bounds.width, bounds.height, 2, true);
   } else {
     renderer.drawRect(bounds.x, bounds.y, bounds.width, bounds.height, true);
   }
-  UITheme::drawCenteredWrappedText(renderer, bounds, UI_10_FONT_ID, text, 2, !correct,
+  const Rect textBounds{bounds.x + 8, bounds.y + 4, bounds.width - 16, bounds.height - 8};
+  UITheme::drawCenteredWrappedText(renderer, textBounds, NOTOSANS_12_FONT_ID, text, 2, !correct,
                                    EpdFontFamily::REGULAR);
 }
 
@@ -206,7 +208,9 @@ void TriviaPackActivity::loop() {
     return;
   }
 
-  if (mappedInput.wasReleased(MappedInputManager::Button::Back) && currentState != State::Downloading) {
+  const bool sideBack = mappedInput.wasReleased(MappedInputManager::Button::Up);
+  const bool bottomBack = mappedInput.wasReleased(MappedInputManager::Button::Back);
+  if ((sideBack || (bottomBack && currentState != State::Solo)) && currentState != State::Downloading) {
     switch (currentState) {
       case State::ModeSelect:
         {
@@ -399,41 +403,62 @@ void TriviaPackActivity::loop() {
   }
 
   if (currentState == State::Solo) {
-    const bool movePrevious = mappedInput.wasReleased(MappedInputManager::Button::NavPrevious);
-    const bool moveNext = mappedInput.wasReleased(MappedInputManager::Button::NavNext);
-    if (haveQuestion && chosenOption < 0 && (movePrevious || moveNext)) {
+    const bool sideSubmit = mappedInput.wasReleased(MappedInputManager::Button::Down);
+    if (!haveQuestion) {
+      if (confirmed || sideSubmit) {
+        {
+          RenderLock lock(*this);
+          dealQuestion();
+        }
+        requestUpdate();
+      }
+      return;
+    }
+    if (chosenOption >= 0) {
+      if (confirmed || sideSubmit) {
+        {
+          RenderLock lock(*this);
+          dealQuestion();
+        }
+        requestUpdate();
+      }
+      return;
+    }
+
+    int bottomChoice = -1;
+    if (bottomBack) {
+      bottomChoice = 0;
+    } else if (confirmed) {
+      bottomChoice = 1;
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+      bottomChoice = 2;
+    } else if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+      bottomChoice = 3;
+    }
+
+    if (bottomChoice >= 0) {
       {
         RenderLock lock(*this);
-        if (movePrevious) {
-          selectedOption_ = (selectedOption_ + trivia::kOptions - 1) % trivia::kOptions;
+        const bool repeatedChoice = lastBottomChoice_ == bottomChoice;
+        selectedOption_ = bottomChoice;
+        if (repeatedChoice) {
+          chosenOption_ = bottomChoice;
+          score_.record(chosenOption_ == choices_.correct);
+          lastBottomChoice_ = -1;
         } else {
-          selectedOption_ = (selectedOption_ + 1) % trivia::kOptions;
+          lastBottomChoice_ = bottomChoice;
         }
       }
       requestUpdate();
       return;
     }
-    if (confirmed && !haveQuestion) {
-      {
-        RenderLock lock(*this);
-        dealQuestion();
-      }
-      requestUpdate();
-      return;
-    }
-    if (chosenOption >= 0 && (moveNext || confirmed)) {
-      {
-        RenderLock lock(*this);
-        dealQuestion();
-      }
-      requestUpdate();
-      return;
-    }
-    if (confirmed && haveQuestion && chosenOption < 0) {
+
+    if (sideSubmit) {
       {
         RenderLock lock(*this);
         chosenOption_ = selectedOption_;
         score_.record(chosenOption_ == choices_.correct);
+        lastBottomChoice_ = -1;
       }
       requestUpdate();
       return;
@@ -491,6 +516,7 @@ void TriviaPackActivity::dealQuestion() {
   answerRevealed_ = false;
   chosenOption_ = -1;
   selectedOption_ = 0;
+  lastBottomChoice_ = -1;
 
   uint32_t index = 0;
   const bool solo = state_ == State::Solo;
@@ -752,7 +778,14 @@ void TriviaPackActivity::render(RenderLock&&) {
   auto& theme = UITheme::getInstance();
   const auto metrics = theme.getMetrics();
   const Rect safe = theme.getScreenSafeArea(renderer, true, false);
-  GUI.drawHeader(renderer, Rect{safe.x, safe.y + metrics.topPadding, safe.width, metrics.headerHeight}, tr(STR_TRIVIA));
+  char scoreLabel[16] = {};
+  const char* headerScore = nullptr;
+  if (state_ == State::Solo || state_ == State::RoundOver) {
+    snprintf(scoreLabel, sizeof(scoreLabel), "%d/%d", score_.right, score_.asked);
+    headerScore = scoreLabel;
+  }
+  GUI.drawHeader(renderer, Rect{safe.x, safe.y + metrics.topPadding, safe.width, metrics.headerHeight}, tr(STR_TRIVIA),
+                 headerScore);
 
   const Rect content = contentBounds(renderer, theme);
 
@@ -771,9 +804,7 @@ void TriviaPackActivity::render(RenderLock&&) {
       }
       break;
     case State::ModeSelect:
-      snprintf(status_, sizeof(status_), "%s\n%s\n%s", tr(STR_TRIVIA_MODE),
-               soloSelected_ ? tr(STR_TRIVIA_SOLO) : tr(STR_TRIVIA_QUIZMASTER),
-               soloSelected_ ? tr(STR_TRIVIA_SOLO_HELP) : tr(STR_TRIVIA_QUIZMASTER_HELP));
+      status_[0] = '\0';
       break;
     case State::Settings: {
       char difficultyValue[24] = {};
@@ -837,7 +868,28 @@ void TriviaPackActivity::render(RenderLock&&) {
       snprintf(status_, sizeof(status_), "%s", tr(STR_TRIVIA_DOWNLOAD_FAILED));
       break;
   }
-  if (state_ != State::Quizmaster && state_ != State::Solo) {
+  for (char* character = status_; *character != '\0'; ++character) {
+    if (*character == '\n') *character = ' ';
+  }
+  if (state_ == State::ModeSelect) {
+    const int titleHeight = renderer.getLineHeight(NOTOSANS_14_FONT_ID);
+    const int modeHeight = renderer.getLineHeight(NOTOSANS_14_FONT_ID);
+    constexpr int modeGap = 12;
+    constexpr int helpGap = 20;
+    const int modeY = content.y + titleHeight + modeGap;
+    const int helpY = modeY + modeHeight + helpGap;
+    const Rect titleBounds{content.x, content.y, content.width, titleHeight};
+    const Rect modeBounds{content.x, modeY, content.width, modeHeight};
+    const Rect helpBounds{content.x + 8, helpY, content.width - 16, content.y + content.height - helpY};
+    UITheme::drawCenteredWrappedText(renderer, titleBounds, NOTOSANS_14_FONT_ID, tr(STR_TRIVIA_MODE), 1, true,
+                                     EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::TOP);
+    UITheme::drawCenteredWrappedText(renderer, modeBounds, NOTOSANS_14_FONT_ID,
+                                     soloSelected_ ? tr(STR_TRIVIA_SOLO) : tr(STR_TRIVIA_QUIZMASTER), 1, true,
+                                     EpdFontFamily::BOLD, UITheme::TextVerticalAlignment::CENTER);
+    UITheme::drawCenteredWrappedText(renderer, helpBounds, UI_12_FONT_ID,
+                                     soloSelected_ ? tr(STR_TRIVIA_SOLO_HELP) : tr(STR_TRIVIA_QUIZMASTER_HELP), 8,
+                                     true, EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::TOP);
+  } else if (state_ != State::Quizmaster && state_ != State::Solo) {
     UITheme::drawCenteredWrappedText(renderer, content, UI_12_FONT_ID, status_, 4, true, EpdFontFamily::REGULAR);
   }
 
@@ -870,9 +922,17 @@ void TriviaPackActivity::render(RenderLock&&) {
       nextLabel = tr(STR_TRIVIA_NEXT);
       break;
     case State::Solo:
-      confirmLabel = !haveQuestion_ ? tr(STR_RETRY) : (chosenOption_ < 0 ? tr(STR_SELECT) : tr(STR_TRIVIA_NEXT));
-      previousLabel = haveQuestion_ && chosenOption_ < 0 ? tr(STR_TRIVIA_PREVIOUS) : "";
-      nextLabel = haveQuestion_ ? tr(STR_TRIVIA_NEXT) : "";
+      backLabel = "";
+      if (!haveQuestion_) {
+        confirmLabel = tr(STR_RETRY);
+      } else if (chosenOption_ < 0) {
+        backLabel = "A";
+        confirmLabel = "B";
+        previousLabel = "C";
+        nextLabel = "D";
+      } else {
+        confirmLabel = tr(STR_TRIVIA_NEXT);
+      }
       break;
     case State::RoundOver:
       confirmLabel = tr(STR_TRIVIA_PLAY);
@@ -904,31 +964,39 @@ void TriviaPackActivity::render(RenderLock&&) {
 
 void TriviaPackActivity::drawQuestion(const Rect content) {
   if (!haveQuestion_) {
-    UITheme::drawCenteredWrappedText(renderer, content, UI_12_FONT_ID, tr(STR_TRIVIA_NO_QUESTIONS), 4, true,
+    UITheme::drawCenteredWrappedText(renderer, content, NOTOSANS_14_FONT_ID, tr(STR_TRIVIA_NO_QUESTIONS), 4, true,
                                      EpdFontFamily::REGULAR);
     return;
   }
 
   const bool solo = state_ == State::Solo;
   const int clueHeight = solo ? content.height * 2 / 5 : (answerRevealed_ ? content.height * 2 / 3 : content.height);
-  const Rect clueBounds{content.x, content.y, content.width, clueHeight};
-  UITheme::drawCenteredWrappedText(renderer, clueBounds, UI_12_FONT_ID, question_.clue(), solo ? 5 : 8, true,
+  const int hintHeight = solo ? 26 : 0;
+  if (solo) {
+    const char* sideHint = chosenOption_ < 0 ? "SIDE LEFT: BACK  SIDE RIGHT: SUBMIT" : "SIDE RIGHT: NEXT";
+    UITheme::drawCenteredWrappedText(renderer, Rect{content.x, content.y, content.width, hintHeight},
+                                     NOTOSANS_12_FONT_ID, sideHint, 1, true, EpdFontFamily::REGULAR);
+  }
+  const Rect clueBounds{content.x + 8, content.y + hintHeight, content.width - 16, clueHeight - hintHeight};
+  UITheme::drawCenteredWrappedText(renderer, clueBounds, NOTOSANS_14_FONT_ID, question_.clue(), solo ? 5 : 8, true,
                                    EpdFontFamily::REGULAR, UITheme::TextVerticalAlignment::TOP);
   if (!solo && answerRevealed_) {
     const Rect answerBounds{content.x, content.y + clueHeight, content.width, content.height - clueHeight};
     renderer.drawRect(answerBounds.x, answerBounds.y, answerBounds.width, answerBounds.height, true);
-    UITheme::drawCenteredWrappedText(renderer, answerBounds, UI_12_FONT_ID, question_.answer(), 4, true,
+    UITheme::drawCenteredWrappedText(renderer, answerBounds, NOTOSANS_14_FONT_ID, question_.answer(), 4, true,
                                      EpdFontFamily::BOLD);
     return;
   }
   if (!solo) return;
 
   const int optionsY = content.y + clueHeight;
-  const int rowHeight = (content.height - clueHeight) / trivia::kOptions;
+  constexpr int rowGap = 6;
+  const int optionsHeight = content.height - clueHeight;
+  const int rowHeight = (optionsHeight - rowGap * (trivia::kOptions - 1)) / trivia::kOptions;
   for (int i = 0; i < trivia::kOptions; ++i) {
-    const Rect optionBounds{content.x, optionsY + i * rowHeight, content.width,
-                            i == trivia::kOptions - 1 ? content.y + content.height - (optionsY + i * rowHeight)
-                                                      : rowHeight};
+    const int rowY = optionsY + i * (rowHeight + rowGap);
+    const Rect optionBounds{content.x, rowY, content.width,
+                            i == trivia::kOptions - 1 ? content.y + content.height - rowY : rowHeight};
     const bool correct = chosenOption_ >= 0 && i == choices_.correct;
     const bool selected = chosenOption_ < 0 ? i == selectedOption_ : i == chosenOption_ && !correct;
     drawOutlinedOption(renderer, optionBounds, choices_.option[i], selected, correct);

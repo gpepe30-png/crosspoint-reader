@@ -11,8 +11,10 @@ does not require a touchscreen.
   starts the selected mode.
 - **Quizmaster:** Confirm reveals the answer; Next advances to another
   question.
-- **Solo:** Previous/Next selects an answer; Confirm submits it. Confirm or
-  Next advances after the answer is shown. The score appears when leaving.
+- **Solo:** The four bottom buttons select A-D. The left side button backs out;
+  the right side button submits the selected answer or advances after feedback.
+  Pressing the same bottom button again submits the selected answer, with no
+  time limit. The score appears when leaving.
 - **Report a question:** Hold Confirm for about one second. The question is
   hidden locally; Previous/Next chooses a reason, Confirm saves it, and Back
   unhides the question and withdraws its unsent report.
@@ -26,12 +28,3 @@ on the SD card under `/trivia/`. Reports stay queued if submission fails. Pack
 downloads are accepted only when their SHA-256 identity matches the verified
 published manifest.
 
-## TODO
-
-- [ ] In Solo mode, give the selected answer a gray highlight that is easy to
-  distinguish from the other three choices.
-- [ ] Improve cluttered text layout and investigate whether the apparent font
-  issue comes from wrapping/spacing or font rendering.
-- [ ] Rework controls so the four bottom buttons select answers, Left goes Back,
-  and Right submits; also consider double-pressing a selected bottom button to
-  submit that answer.

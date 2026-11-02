@@ -10,7 +10,6 @@
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
-#include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
@@ -35,7 +34,7 @@ void ClockSyncActivity::onExit() {
   if (shouldTearDownWifiOnExit && WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(false);
     delay(30);
-    silentRestart();
+    WiFi.mode(WIFI_OFF);
   }
 }
 

@@ -9,8 +9,10 @@ AppsActivity::AppsActivity(GfxRenderer& renderer, MappedInputManager& mappedInpu
     : UiListActivity("Apps", renderer, mappedInput) {}
 
 void AppsActivity::onEnter() {
-  rowItems_[0].label = tr(STR_TRIVIA);
+  rowItems_[0].label = tr(STR_STUDY);
   rowItems_[0].actionValue = 0;
+  rowItems_[1].label = tr(STR_TRIVIA);
+  rowItems_[1].actionValue = 1;
   UiListActivity::onEnter();
 }
 
@@ -32,7 +34,10 @@ void AppsActivity::buildScreen(UiScreen& screen) {
 }
 
 void AppsActivity::activateIndex(const int index) {
-  if (index != 0) return;
   app.clearTapFlash();
-  activityManager.goToTrivia();
+  if (index == 0) {
+    activityManager.goToStudy();
+  } else if (index == 1) {
+    activityManager.goToTrivia();
+  }
 }

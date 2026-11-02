@@ -58,6 +58,7 @@ class MappedInputManager {
   // One-shot threshold event while the button is down; consumes its release.
   bool wasLongPressed(Button button, unsigned long thresholdMs) const;
   bool consumeSuppressedRelease() const;
+  void suppressNextRelease(Button button) const;
   bool isPressed(Button button) const;
   bool hasTouch() const;
   bool wasScreenTapped(int& x, int& y) const;
@@ -149,7 +150,6 @@ class MappedInputManager {
   bool wasPowerConfirmClick() const;
 #endif
   void rememberTouchHeldTime() const;
-  void suppressNextRelease(Button button) const;
 
   mutable RemoteButtonInput remoteInput;
   mutable HomeButtonInput homeButtonInput;

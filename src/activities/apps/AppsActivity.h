@@ -5,7 +5,7 @@
 #include "activities/UiListActivity.h"
 
 class AppsActivity final : public UiListActivity {
-  std::array<freeink::ui::ListItem, 1> rowItems_{};
+  std::array<freeink::ui::ListItem, 2> rowItems_{};
 
   int listCount() const override { return static_cast<int>(rowItems_.size()); }
   void buildScreen(UiScreen& screen) override;

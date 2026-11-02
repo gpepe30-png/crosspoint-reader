@@ -30,7 +30,6 @@
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
-#include "SilentRestart.h"
 #include "StatusBarSettingsActivity.h"
 #include "TextSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -320,17 +319,12 @@ void SettingsActivity::toggleSelectedSetting() {
         }
         startActivityForResult(std::move(activity), [](const ActivityResult&) {
           SETTINGS.saveToFile();
-          // Every other WiFi consumer hands the radio to a session it owns;
-          // these rows only save credentials, so nothing here would ever
-          // release the driver's heap. The scan alone brings it up, so tear
-          // down whether or not the user joined a network.
+          // Settings only manages saved networks; it does not keep a session
+          // connected after the picker closes.
           if (WiFi.getMode() == WIFI_MODE_NULL) return;
           WiFi.disconnect(false);
           delay(30);
-          // Unlike the onExit() teardowns, this runs from the loop task with
-          // no lock held; the restart popup paints straight to the panel.
-          RenderLock lock;
-          silentRestartToSettings();
+          WiFi.mode(WIFI_OFF);
         });
         break;
       }
