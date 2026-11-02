@@ -41,14 +41,14 @@ Use the table to find guidance for the decisions being changed. Read relevant se
 | User-facing strings or language metadata | [translation workflow](.agents/rules/generated-files-cache.md#translation-workflow) |
 | Generated HTML/i18n or font assets | [generated sources](.agents/rules/generated-files-cache.md#files-generated-by-build-scripts) or [font generation](.agents/rules/generated-files-cache.md#font-generation) |
 | Cache formats, layout persistence, or invalidation | [versioning](.agents/rules/generated-files-cache.md#cache-file-format-versioning) and [invalidation](.agents/rules/generated-files-cache.md#cache-invalidation-rules) |
-| New features, activities, settings, libraries, or dependencies | `SCOPE.md` and the `scope-discipline` skill |
+| New features, activities, settings, libraries, or dependencies | `LOCAL_SCOPE.md` when present, upstream `SCOPE.md`, and the `scope-discipline` skill |
 | Restructuring, extraction, or separating unrelated cleanup | the `refactor-for-review` skill |
 
 Repository-local skills live under `.agents/skills/`. Their descriptions identify specific procedures to use when needed; a keyword match alone does not require loading a skill.
 
 ## Human ownership
 
-A PR is a long-term maintenance commitment. Working code is not enough: prefer the simplest design that meets the real requirement, fits `SCOPE.md`, and can be understood and maintained by its human owner.
+A PR is a long-term maintenance commitment. Working code is not enough: prefer the simplest design that meets the real requirement, fits `LOCAL_SCOPE.md` when present (otherwise `SCOPE.md`), and can be understood and maintained by its human owner.
 
 Fully autonomous end-to-end agents are forbidden. Review subagents inspect code,
 diffs, history, and recorded checks only. The main agent owns verification:

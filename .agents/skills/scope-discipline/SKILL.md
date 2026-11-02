@@ -5,17 +5,20 @@ description: Dedicated e-reader feature scope. Use when adding features, activit
 
 # Scope Discipline
 
-The mission: do one thing exceptionally well, focused reading on constrained
-hardware. `SCOPE.md` is the source of truth for what is in and out. Read it
-before adding surface. This is the gate to run before writing a new feature.
+Read `LOCAL_SCOPE.md` when present; it defines this downstream fork's product
+scope and overrides upstream `SCOPE.md` where they conflict. Otherwise,
+`SCOPE.md` is the source of truth. Read the applicable scope before adding
+surface. Resource, lifecycle, hardware, and maintenance checks in this skill
+still apply to fork-local features.
 
 ## The gate
 
 Before adding a feature, activity, lib, setting, or dependency, answer in order:
 
-1. **Is it in `SCOPE.md`?** Explicitly out: interactive apps (notepad,
-   calculator, games), active connectivity (RSS, news, browser), media/audio
-   playback. If it is out, say so and stop.
+1. **Is it in the applicable scope?** Check `LOCAL_SCOPE.md` first when it
+   exists, then use upstream `SCOPE.md` for areas the local scope does not
+   address. An upstream exclusion overridden by the fork's local scope is not
+   a blocker for that fork.
 2. **Does it materially improve focused reading?** If the benefit is
    "nice to have" or serves a different use case, it is out. This is not a PDA.
 3. **What resources does it need?** Account for steady-state and peak RAM,
@@ -36,8 +39,8 @@ Before adding a feature, activity, lib, setting, or dependency, answer in order:
    settings, and failure paths alongside the concrete reading benefit.
 
 If a request fails the gate, push back with the specific reason and the
-`SCOPE.md` basis, and offer the in-scope alternative. Make the call and say why;
-do not just hand over a menu.
+applicable scope basis, and offer an in-scope alternative. Make the call and
+say why; do not just hand over a menu.
 
 ## Surface awareness
 
@@ -66,7 +69,7 @@ choice; otherwise pick a sensible fixed default.
 
 ## Self-review
 
-- [ ] Checked against `SCOPE.md`; not on the out-of-scope list.
+- [ ] Checked against `LOCAL_SCOPE.md` when present and upstream `SCOPE.md`; not out of scope for this fork.
 - [ ] Stated the concrete reading benefit, not a generic "useful."
 - [ ] Accounted for RAM, largest-block, Flash/OTA, storage, power, and maintenance costs and explained why the reading benefit wins.
 - [ ] Labeled estimates, measurements, and pending device checks.
