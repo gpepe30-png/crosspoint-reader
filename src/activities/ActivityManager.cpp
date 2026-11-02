@@ -16,6 +16,7 @@
 #include "HapticFeedback.h"
 #include "OpdsServerStore.h"
 #include "apps/AppsActivity.h"
+#include "activities/trivia/TriviaPackActivity.h"
 #include "boot_sleep/BootActivity.h"
 #include "boot_sleep/SleepActivity.h"
 #include "browser/OpdsBookBrowserActivity.h"
@@ -332,6 +333,15 @@ void ActivityManager::goToApps() {
     return;
   }
   replaceActivity(std::move(activity));
+}
+
+void ActivityManager::goToTrivia() {
+  auto activity = makeUniqueNoThrow<TriviaPackActivity>(renderer, mappedInput);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: trivia activity");
+    return;
+  }
+  pushActivity(std::move(activity));
 }
 
 void ActivityManager::goToReader(std::string path, const bool allowFastInitialRefresh) {

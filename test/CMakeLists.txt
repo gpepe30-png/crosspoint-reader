@@ -70,6 +70,7 @@ add_subdirectory(chapter_position)
 add_subdirectory(book_metadata_cache)
 add_subdirectory(home_button)
 add_subdirectory(button_press_navigation)
+add_subdirectory(trivia)
 
 add_subdirectory(inflate_stream)
 add_subdirectory(inflate_reader)
