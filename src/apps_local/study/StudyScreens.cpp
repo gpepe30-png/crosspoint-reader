@@ -1,6 +1,7 @@
 #include "StudyScreens.h"
 
 #include <cstdio>
+#include <cstring>
 
 #include "../../components/icons/listIcons.h"
 
@@ -385,6 +386,16 @@ const char* stageLabel(const int i) {
   return kLabels[i];
 }
 
+const char* deckLeafName(const char* name) {
+  if (name == nullptr) return "";
+  const char* leaf = name;
+  for (const char* separator = std::strstr(name, "::"); separator != nullptr;
+       separator = std::strstr(separator + 2, "::")) {
+    leaf = separator + 2;
+  }
+  return leaf;
+}
+
 // The band's segments are a quarter-width each; the full labels truncate.
 const char* stageShortLabel(const int i) {
   static const char* kLabels[kSyncStageCount] = {"CONNECT", "SEND", "BUILD", "DOWNLOAD"};
@@ -433,7 +444,7 @@ void syncSafetyFooter(toybox::Screen& screen, const fui::Rect& body, const bool 
 }  // namespace
 
 void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
-  chrome(screen, "SYNC");
+  toybox::absoluteChrome(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
   const fui::Rect body = screen.body();
   const fui::Paint ink = fui::Paint::solid(fui::Color::Black);
@@ -444,7 +455,7 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
     if (model.stages[i] == SyncStageState::Active) activeStage = i;
   }
 
-  // V2 "Stage band": a horizontal four-segment band under the header; the
+  // V2 "Stage band": a horizontal four-segment band at the top of the page; the
   // current stage as a headline beneath it.
   const int segGap = 8;
   const int segW = (body.width - segGap * (kSyncStageCount - 1)) / kSyncStageCount;
@@ -612,10 +623,11 @@ void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
     }
     const int textX = r.x + 22 + toybox::kMargin;
     const int textW = r.right() - textX;
+    const char* displayName = deckLeafName(row.name);
     // Each box gets its own line height: text is centred in its box, so a box
     // shorter than the font's line spills over the one below it.
     screen.target().text(
-        fui::makeRect(textX, r.y + 2, textW, 34), row.name,
+      fui::makeRect(textX, r.y + 2, textW, 34), displayName,
         syncText(toybox::kUiFont, fui::TextAlign::Left, choosable ? fui::Color::Black : fui::Color::DarkGray));
     screen.target().text(fui::makeRect(textX, r.y + 38, textW, 22), count,
                          syncText(toybox::kTileFont, fui::TextAlign::Left, fui::Color::DarkGray));

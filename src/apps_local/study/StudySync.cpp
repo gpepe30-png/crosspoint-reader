@@ -322,6 +322,7 @@ void BridgeState::setBuild(const char* dir, const char* buildId) {
 
 bool loadBridgeState(BridgeState& out) {
   out = BridgeState{};
+  if (!Storage.exists(kBridgeStatePath)) return false;
   HalFile file;
   if (!Storage.openFileForRead("STUDYSYNC", kBridgeStatePath, file)) return false;
   JsonDocument doc;

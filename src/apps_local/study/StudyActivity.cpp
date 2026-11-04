@@ -113,6 +113,7 @@ std::unique_ptr<Activity> StudyActivity::create(GfxRenderer& renderer, MappedInp
 void StudyActivity::onEnter() {
   Activity::onEnter();
   toybox::ensureFonts(renderer);
+  study::loadBridgeState(bridge_);
 
   if (findDeckDirs() && openDeckAt(deckIndex_)) {
     beginDeckSession();
@@ -1018,8 +1019,7 @@ void StudyActivity::loop() {
       if (selectedNoDeckDoor_ != 0 && noDeckPickH_ > 0) {
         pickerRequested_ = true;
       } else {
-        study::BridgeState onCard;
-        pickerRequested_ = !(study::loadBridgeState(onCard) && onCard.choseDecks);
+        pickerRequested_ = !(bridge_.paired && bridge_.choseDecks);
       }
       beginSync();
       return;
@@ -1477,8 +1477,8 @@ int StudyActivity::countWaitingIn(const char* dirName) const {
 
 void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   {
-    study::BridgeState bridge;
-    out.paired = study::loadBridgeState(bridge);
+    const study::BridgeState& bridge = bridge_;
+    out.paired = bridge.paired;
     // How much this reader is holding that AnkiWeb has not seen: revlog.dat
     // past the acked offset, in whole records. Nothing syncs on its own, so
     // without this a finished session sits on the card indefinitely while the
@@ -1685,8 +1685,9 @@ void StudyActivity::render(RenderLock&&) {
     return;
   }
 
-  // The header never repaints its shape, only its text, so solid black is free
-  // here and ghosts nothing. docs/design-language.md, the one rule.
+  // The first-run landing page is unheaded; the card and image views retain
+  // their compact study header.
+  const bool headerVisible = view_ != View::NoDeck;
   char title[64];
   if (view_ == View::Image) {
     // No title. The headword cannot be drawn here at all -- this header uses
@@ -1712,10 +1713,10 @@ void StudyActivity::render(RenderLock&&) {
   // chrome is still the theme's.
   const auto& metrics = UITheme::getInstance().getMetrics();
   const Rect headerBand{0, metrics.topPadding, width, metrics.headerHeight};
-  GUI.drawHeader(renderer, headerBand, "");
+  if (headerVisible) GUI.drawHeader(renderer, headerBand, "");
 
   const int titleX = toybox::kMargin;
-  if (title[0] != '\0') {
+  if (headerVisible && title[0] != '\0') {
     toybox::drawCapsCentered(renderer, toybox::kUiFontId, titleX, headerBand.y, headerBand.height, title, true);
   }
   if (view_ == View::Card) {
@@ -1725,7 +1726,7 @@ void StudyActivity::render(RenderLock&&) {
                              headerBand.height, sideHint, true);
   }
 
-  const int bodyTop = metrics.topPadding + metrics.headerHeight;
+  const int bodyTop = metrics.topPadding + (headerVisible ? metrics.headerHeight : 0);
   const int footerTop = height - kFooterHeight;
 
   if (view_ == View::Image) {
@@ -1753,12 +1754,11 @@ void StudyActivity::render(RenderLock&&) {
     noDeckSyncX_ = 60;
     noDeckSyncY_ = static_cast<int16_t>(height - kFooterHeight - noDeckSyncH_ - 24);
 
-    study::BridgeState pairedState;
-    const bool paired = study::loadBridgeState(pairedState);
+    const bool paired = bridge_.paired;
     UITheme::drawCenteredWrappedText(renderer, Rect{0, bodyTop + 16, width, 56}, kReadingFontId,
                                      !paired                  ? "Bring your Anki decks"
-                                     : pairedState.choseDecks ? "Get your decks back"
-                                                              : "Choose your decks",
+                     : bridge_.choseDecks ? "Get your decks back"
+                                : "Choose your decks",
                                      1);
     const int16_t qrSide = 208;
     const int16_t qrTop = static_cast<int16_t>(bodyTop + 88);
@@ -1780,11 +1780,11 @@ void StudyActivity::render(RenderLock&&) {
     UITheme::drawCenteredWrappedText(
         renderer, Rect{24, bodyBoxTop, width - 48, static_cast<int16_t>(paired ? 200 : 96)}, kMeaningFontId,
         !paired                  ? "Scan it to add a deck from a computer."
-        : pairedState.choseDecks ? "Your decks are chosen but not on this card yet."
-                                 : "Your Anki account is connected. Pick the decks it keeps.",
+        : bridge_.choseDecks ? "Your decks are chosen but not on this card yet."
+                 : "Your Anki account is connected. Pick the decks it keeps.",
         paired ? 4 : 3);
 
-    noDeckPickH_ = paired && pairedState.choseDecks ? noDeckSyncH_ : 0;
+    noDeckPickH_ = paired && bridge_.choseDecks ? noDeckSyncH_ : 0;
     if (noDeckPickH_ == 0) selectedNoDeckDoor_ = 0;
     if (noDeckPickH_ > 0) {
       noDeckPickY_ = static_cast<int16_t>(noDeckSyncY_ - noDeckPickH_ - 12);
@@ -1804,7 +1804,7 @@ void StudyActivity::render(RenderLock&&) {
     renderer.drawRoundedRect(noDeckSyncX_, noDeckSyncY_, noDeckSyncW_, noDeckSyncH_, toybox::kHairline,
                              noDeckSyncH_ / 2, true);
     {
-      const char* label = !paired ? "SYNC WITH ANKI" : pairedState.choseDecks ? "GET MY DECKS" : "CHOOSE DECKS";
+      const char* label = !paired ? "SYNC WITH ANKI" : bridge_.choseDecks ? "GET MY DECKS" : "CHOOSE DECKS";
       const int labelWidth = renderer.getTextWidth(toybox::kUiFontId, label);
       toybox::drawCapsCentered(renderer, toybox::kUiFontId, noDeckSyncX_ + (noDeckSyncW_ - labelWidth) / 2,
                                noDeckSyncY_, noDeckSyncH_, label, selectedNoDeckDoor_ != 0);

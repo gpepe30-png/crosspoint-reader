@@ -84,9 +84,9 @@ back to a stock sentence.
 
 ## Design direction
 
-One SYNC surface with three faces sharing one visual language: the
-STUDY header band, the 16px unit, lucide glyphs (check / x / minus)
-through the manifest pipeline.
+One SYNC surface with three faces sharing one visual language: no header
+band, the 16px unit, lucide glyphs (check / x / minus) through the
+manifest pipeline.
 
 1. **The ladder (busy face).** Four stages: CONNECT, SEND REVIEWS,
    BUILD DECKS, DOWNLOAD. Done stages show a filled marker and a fact
@@ -109,7 +109,7 @@ through the manifest pipeline.
 - V1 "Ladder": vertical checklist, markers in a left gutter, facts
   right-aligned per row (the door's label/value pattern). Verdict as a
   left-aligned block on the same column grid.
-- V2 "Stage band": a horizontal four-segment band under the header
+- V2 "Stage band": a horizontal four-segment band at the top of the page
   (segments fill as they complete), the current stage as a large
   reading-cut headline beneath it, caption under, safety as footer.
   Verdict centered under the same band, which shows where it ended.
