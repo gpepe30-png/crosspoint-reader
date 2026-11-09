@@ -33,6 +33,7 @@ struct DeckModel {
   const char* name = "";
   int due = 0;       // cards waiting today
   int fresh = 0;     // new cards available today
+  int learning = 0;  // learning-step cards waiting for their scheduled time
   int reviewed = 0;  // answered in this session
   int recalled = 0;  // of those, not Again
   int total = 0;     // cards in the deck

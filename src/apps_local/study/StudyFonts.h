@@ -24,7 +24,9 @@
 // character a real Chinese book contains that this deck does not.
 
 #include <SdCardFontManager.h>
+#include <SdCardFontRegistry.h>
 
+#include <array>
 #include <cstdint>
 
 class GfxRenderer;
@@ -34,6 +36,7 @@ namespace study {
 class StudyFonts {
  public:
   static constexpr int kFamilyCount = 6;
+  static constexpr int kIndexSectionCount = 3;
 
   // The five families in the order Mario's card template lists them, plus
   // "Custom": the name make_fonts.py --font builds under, so a deck in any
@@ -72,6 +75,13 @@ class StudyFonts {
   // one face on purpose.
   int loadPreferred(GfxRenderer& renderer, int preferred);
 
+  void loadIndexFonts(GfxRenderer& renderer, const SdCardFontRegistry& registry, const char* familyName,
+                      const char* const* cardText, size_t textCount);
+  void unloadIndexFonts(GfxRenderer& renderer);
+  int detailsFontId() const { return detailsFont_.fontId; }
+  int indexFontId(int section) const {
+    return section >= 0 && section < kIndexSectionCount ? indexFonts_[section].fontId : 0;
+  }
   void unload(GfxRenderer& renderer);
 
   // Pull this card's glyphs off the SD card before drawing them. Without this
@@ -93,7 +103,17 @@ class StudyFonts {
   const char* familyName() const { return familyName(familyIndex_); }
 
  private:
+  void unloadDeckFonts(GfxRenderer& renderer);
+
+  struct IndexFont {
+    int fontId = 0;
+    char family[64] = "";
+  };
+
   SdCardFontManager manager_;
+  IndexFont detailsFont_;
+  int deckFontIds_[3] = {};
+  std::array<IndexFont, kIndexSectionCount> indexFonts_{};
   int headwordFontId_ = 0;
   int sentenceFontId_ = 0;
   int rubyFontId_ = 0;

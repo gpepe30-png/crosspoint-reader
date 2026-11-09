@@ -76,9 +76,7 @@ class StudyActivity final : public Activity {
   // undo can find it again. `written` says whether it means anything: offset 0
   // is where the very first review of a new log goes.
   bool persist(int index, const study::CardState& card, study::Rating rating, const study::Outcome& outcome,
-               uint32_t& revlogOffset, bool& written);
-  // Pick the next card: a learning card whose minute has come, else the queue,
-  // else the learning card that is closest to due.
+               uint32_t tookMs, uint32_t& revlogOffset, bool& written);
   bool findDeckDirs();
   void beginDeckSession();
   bool openDeckAt(int index);
@@ -93,6 +91,8 @@ class StudyActivity final : public Activity {
   void saveResumeState() const;
   void armResume();
   int64_t cardIdAt(int index);
+  // Due learning cards go first, then the main queue. Future step cards stay
+  // pending until their scheduler-assigned due time.
   bool takeNext();
   // Take back the last answer. One level only: "I meant Good, not Again" is the
   // case that matters, and a deeper stack would need the queue's whole history
@@ -119,12 +119,15 @@ class StudyActivity final : public Activity {
   // the glyphs. `spanLength` of 0 draws exactly what drawWrapped would.
   int drawWrappedUnderlined(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength,
                             bool measureOnly = false) const;
+  int drawWrappedMixedBold(int fontId, int spanFontId, int y, int maxWidth, const char* text, int spanStart,
+                           int spanLength, bool measureOnly = false) const;
   // The one body behind both. Kept private and named for what it does rather
   // than folded into drawWrapped with two defaulted arguments: every call
   // site says whether it is marking something, and "0, 0, false" at the end
   // of a draw call says nothing to anybody.
   int drawWrappedMarked(int fontId, int y, int maxWidth, const char* text, int spanStart, int spanLength,
-                        bool measureOnly) const;
+                        bool measureOnly, bool boldSpan = false) const;
+  int drawPsalterIndex(int y, const char* text, bool measureOnly) const;
   // The two faces, laid out from the top of the body. Each returns where its
   // content ends; with measureOnly nothing is drawn, so drawCard can find the
   // largest type that fits before it draws anything.
@@ -198,6 +201,7 @@ class StudyActivity final : public Activity {
     // rather than a sentinel value.
     uint32_t revlogOffset = 0;
     bool revlogWritten = false;
+    uint32_t reviewStartedAtMs = 0;
     Took took = Took::Nothing;     // where the card now on screen came from
     bool enteredLearning = false;  // grading put it into the step list
     int reviewed = 0;
@@ -227,22 +231,27 @@ class StudyActivity final : public Activity {
   Face resumeFace_ = Face::Question;
 
   int currentIndex_ = -1;
+  uint32_t reviewStartedAtMs_ = 0;
   int today_ = 0;
   int startMinute_ = 0;
   int forecast_[studyui::kForecastDays] = {};
   int dueTotal_ = 0;
   int newTotal_ = 0;
+  int pendingLearningTotal_ = 0;
   int reviewedThisSession_ = 0;
   int againThisSession_ = 0;
   bool writeFailed_ = false;
   int selectedDoor_ = 0;
-  int selectedRating_ = 2;
+  int selectedRating_ = 3;
   int selectedNoDeckDoor_ = 0;
 
   toybox::Interactions interactions_;
 
   View view_ = View::NoDeck;
   Face face_ = Face::Question;
+  bool psalterCard_ = false;
+  bool hintRevealed_ = false;
+  bool detailsExpanded_ = false;
   bool fontsReady_ = false;
   uint32_t shuffle_ = 0;
 

@@ -156,7 +156,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
   // common action is a tap on the largest thing on the screen and needs no
   // button of its own.
   char headline[32];
-  const int waiting = model.due + model.fresh;
+  const int waiting = model.due + model.fresh + model.learning;
   if (waiting > 0) {
     std::snprintf(headline, sizeof(headline), "%d TO GO", waiting);
   } else {
@@ -174,7 +174,7 @@ void buildDeck(toybox::Screen& screen, const DeckModel& model) {
 
   char state[64];
   if (waiting > 0) {
-    std::snprintf(state, sizeof(state), "%d DUE   %d NEW", model.due, model.fresh);
+    std::snprintf(state, sizeof(state), "%d DUE   %d NEW   %d LEARNING", model.due, model.fresh, model.learning);
   } else if (model.reviewed > 0) {
     std::snprintf(state, sizeof(state), "%d REVIEWED   %d%% RIGHT", model.reviewed,
                   model.reviewed > 0 ? model.recalled * 100 / model.reviewed : 0);
@@ -556,7 +556,7 @@ void buildSyncFlow(toybox::Screen& screen, const SyncFlowModel& model) {
 }
 
 void buildDeckPicker(toybox::Screen& screen, DeckPickerModel& model) {
-  chrome(screen, "SYNC");
+  toybox::absoluteChrome(screen);
   screen.insetContent(fui::Insets{toybox::kGutter * 3, toybox::kMargin, toybox::kMargin, toybox::kMargin});
   const fui::Rect body = screen.body();
 

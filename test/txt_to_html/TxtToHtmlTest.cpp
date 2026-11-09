@@ -33,6 +33,12 @@ std::string convert(std::string_view content) {
   return out.str;
 }
 
+std::string convertMarkdown(std::string_view content) {
+  StringPrint out;
+  EXPECT_TRUE(TxtToHtml::stream("test.md", content, out));
+  return out.str;
+}
+
 TEST(TxtToHtmlTest, LeadingSpacesIndentation) {
   EXPECT_EQ(convert("  two spaces"), kHeader + "&#160;&#160;two spaces" + kFooter);
   EXPECT_EQ(convert("    four spaces"), kHeader + "&#160;&#160;&#160;&#160;four spaces" + kFooter);
@@ -50,7 +56,7 @@ TEST(TxtToHtmlTest, PreservesCacheVersionTagsForBothFormats) {
   StringPrint out;
   ASSERT_TRUE(TxtToHtml::stream("test.MD", "text", out));
   EXPECT_EQ(out.str,
-            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- MD_CACHE_VERSION: 1 -->\n"
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- MD_CACHE_VERSION: 4 -->\n"
             "<!DOCTYPE html>\n<html>\n<head><title>test</title></head>\n<body>\ntext" +
                 kFooter);
   EXPECT_NE(out.str.find(TxtToHtml::cacheVersionTag("test.MD")), std::string::npos);

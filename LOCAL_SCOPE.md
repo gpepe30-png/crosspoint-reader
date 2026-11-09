@@ -20,6 +20,15 @@ support are the foundation to preserve, not work that needs to be re-ported.
   scheduling behavior, and synchronization are implementation decisions. Do not
   imply full Anki parity or add online services without a concrete requirement.
 
+## Daily Readings
+
+- A native X4C app that fetches and displays the USCCB daily Mass readings from
+  its date-addressed readings page is in scope. This is a narrow exception to
+  the upstream closure on new external network connectors and does not permit
+  general web browsing, arbitrary remote content, or other new connectors.
+- The app is for personal on-device display only. Preserve source attribution
+  and the site's copyright notice; do not redistribute the readings.
+
 ## Games
 
 Native games are in scope. Specific games, engines, libraries, and multiplayer

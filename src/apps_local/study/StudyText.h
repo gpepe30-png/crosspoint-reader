@@ -540,6 +540,8 @@ inline bool spanOnLine(const WrappedLine& line, const int spanStart, const int s
 //   int  getTextWidth(int fontId, const char* text) const
 //   int  getTextHeight(int fontId) const
 //   void drawText(int fontId, int x, int y, const char* text, bool black) const
+//   int  getBoldTextWidth(int fontId, const char* text) const
+//   void drawBoldText(int fontId, int x, int y, const char* text, bool black) const
 //   void fillRect(int x, int y, int w, int h, bool black) const
 //
 // `bottom`, when given, is the last pixel row a line may reach: a line that
@@ -550,7 +552,7 @@ template <typename Target>
 int drawWrappedMarked(const Target& target, const int fontId, int y, const int maxWidth, const char* text,
                       const int spanStart, const int spanLength, const bool measureOnly, char* line,
                       const int lineBytes, char* scratch, const int rubyFontId = 0, const int bottom = INT_MAX,
-                      bool* clipped = nullptr) {
+                      bool* clipped = nullptr, const bool boldSpan = false) {
   if (text == nullptr || *text == '\0') return y;
 
   const int lineHeight = target.getTextHeight(fontId);
@@ -579,38 +581,75 @@ int drawWrappedMarked(const Target& target, const int fontId, int y, const int m
       int cp = laid.startCodepoint;
 
       forEachRubySegment(laid.text, [&](const RubySegment& segment) {
-        const int width = rubySegmentWidth(segment, measureBase, measureRuby, scratch, lineBytes);
-
-        // The base, centred under its reading when the reading is wider.
         copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
         const int baseWidth = target.getTextWidth(fontId, scratch);
-        const int baseX = x + (width - baseWidth) / 2;
-        target.drawText(fontId, baseX, y + above, scratch, true);
-
-        // The emphasis span, underlined. Measured inside THIS segment, which
-        // is what makes one code path serve a plain line and a ruby one: a
-        // plain line is a single segment and the arithmetic is the same.
         int from = 0;
         int to = 0;
         WrappedLine piece;
         piece.startCodepoint = cp;
         piece.codepoints = segment.codepoints;
-        if (spanOnLine(piece, spanStart, spanLength, from, to)) {
-          const int fromBytes = bytesForCodepoints(scratch, from);
-          const int toBytes = bytesForCodepoints(scratch, to);
-          // scratch still holds the base; truncate in place to measure the
-          // prefix, longest first so the shorter cut does not destroy it.
-          const char saved = scratch[toBytes];
-          scratch[toBytes] = '\0';
-          const int x1 = baseX + target.getTextWidth(fontId, scratch);
-          scratch[toBytes] = saved;
+        const bool marked = spanOnLine(piece, spanStart, spanLength, from, to);
+
+        int styledBaseWidth = baseWidth;
+        int fromBytes = 0;
+        int toBytes = 0;
+        int prefixWidth = 0;
+        int boldSpanWidth = 0;
+        if (marked && boldSpan) {
+          fromBytes = bytesForCodepoints(scratch, from);
+          toBytes = bytesForCodepoints(scratch, to);
+          const char savedFrom = scratch[fromBytes];
+          const char savedTo = scratch[toBytes];
           scratch[fromBytes] = '\0';
-          const int x0 = baseX + target.getTextWidth(fontId, scratch);
-          // Two pixels clear of the baseline so descenders are not struck
-          // through, and one pixel thick: this is a mark, not a rule.
-          if (x1 > x0) target.fillRect(x0, y + above + lineHeight - 2, x1 - x0, 1, true);
+          prefixWidth = target.getTextWidth(fontId, scratch);
+          scratch[fromBytes] = savedFrom;
+          scratch[toBytes] = '\0';
+          boldSpanWidth = target.getBoldTextWidth(fontId, scratch + fromBytes);
+          scratch[toBytes] = savedTo;
+          styledBaseWidth = prefixWidth + boldSpanWidth + target.getTextWidth(fontId, scratch + toBytes);
+        }
+
+        int rubyWidth = 0;
+        if (segment.ruby != nullptr && rubyFontId != 0) {
+          copyRun(segment.ruby, segment.rubyBytes, scratch, lineBytes);
+          rubyWidth = target.getTextWidth(rubyFontId, scratch);
           copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
         }
+        const int width = styledBaseWidth > rubyWidth ? styledBaseWidth : rubyWidth;
+        const int baseX = x + (width - styledBaseWidth) / 2;
+
+        if (marked && boldSpan) {
+          if (fromBytes > 0) {
+            const char saved = scratch[fromBytes];
+            scratch[fromBytes] = '\0';
+            target.drawText(fontId, baseX, y + above, scratch, true);
+            scratch[fromBytes] = saved;
+          }
+          const char savedTo = scratch[toBytes];
+          scratch[toBytes] = '\0';
+          target.drawBoldText(fontId, baseX + prefixWidth, y + above, scratch + fromBytes, true);
+          scratch[toBytes] = savedTo;
+          if (savedTo != '\0') {
+            target.drawText(fontId, baseX + prefixWidth + boldSpanWidth, y + above, scratch + toBytes, true);
+          }
+        } else {
+          target.drawText(fontId, baseX, y + above, scratch, true);
+          if (marked) {
+            // The emphasis span, underlined. Measured inside THIS segment,
+            // which keeps the mark aligned with the actual wrapped line.
+            const int fromBytes = bytesForCodepoints(scratch, from);
+            const int toBytes = bytesForCodepoints(scratch, to);
+            const char saved = scratch[toBytes];
+            scratch[toBytes] = '\0';
+            const int x1 = baseX + target.getTextWidth(fontId, scratch);
+            scratch[toBytes] = saved;
+            scratch[fromBytes] = '\0';
+            const int x0 = baseX + target.getTextWidth(fontId, scratch);
+            if (x1 > x0) target.fillRect(x0, y + above + lineHeight - 2, x1 - x0, 1, true);
+            copyRun(segment.base, segment.baseBytes, scratch, lineBytes);
+          }
+        }
+
         // The reading, centred over its base.
         if (segment.ruby != nullptr && rubyFontId != 0) {
           copyRun(segment.ruby, segment.rubyBytes, scratch, lineBytes);

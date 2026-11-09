@@ -364,6 +364,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t readerMenuStyle = READER_MENU_LIST;
   // SD card font family name (empty = use built-in fontFamily)
   char sdFontFamilyName[32] = "";
+  // SD-card family used by the Study Index (empty = use the built-in fallback).
+  char studyIndexFont[64] = "";
   // Dictionary folder name under /dictionaries (empty = no dictionary)
   char dictionaryName[32] = "";
   // Master switch for all SD-card plugin discovery/execution. New installs keep

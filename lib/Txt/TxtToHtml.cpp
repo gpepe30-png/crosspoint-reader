@@ -8,7 +8,7 @@
 #include <cstring>
 
 const char* TxtToHtml::cacheVersionTag(std::string_view filename) {
-  return FsHelpers::hasMarkdownExtension(filename) ? "<!-- MD_CACHE_VERSION: 1 -->" : "<!-- TXT_CACHE_VERSION: 1 -->";
+  return FsHelpers::hasMarkdownExtension(filename) ? "<!-- MD_CACHE_VERSION: 4 -->" : "<!-- TXT_CACHE_VERSION: 1 -->";
 }
 
 size_t TxtToHtml::escapedHtmlSize(const std::string_view text) {
@@ -66,6 +66,16 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
 
   bool isStart = true;
   bool atLineStart = true;
+  const bool isMarkdown = FsHelpers::hasMarkdownExtension(filename);
+  int headingLevel = 0;
+  int activeHeadingLevel = 0;
+  bool inHeading = false;
+  bool inStrong = false;
+  bool inEmphasis = false;
+  bool pendingAsterisk = false;
+  bool emphasisMarkerLine = false;
+  bool lineHasText = false;
+  bool pageBreakBeforeHeading = false;
   size_t pendingSpaces = 0;
   int bytesRead = 0;
 
@@ -84,8 +94,72 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
 
       if (b == '\n') {
         pendingSpaces = 0;
-        writeStr("<br />");
+        bool suppressLineBreak = false;
+        if (headingLevel > 0) {
+          while (headingLevel-- > 0) writeByte('#');
+          headingLevel = 0;
+        }
+        if (pendingAsterisk) {
+          if (isMarkdown && emphasisMarkerLine && !lineHasText) {
+            writeStr(inEmphasis ? "</em>" : "<em>");
+            inEmphasis = !inEmphasis;
+            suppressLineBreak = true;
+          } else if (inEmphasis) {
+            writeStr("</em>");
+            inEmphasis = false;
+          } else {
+            writeByte('*');
+          }
+          pendingAsterisk = false;
+          emphasisMarkerLine = false;
+        }
+        if (inStrong) {
+          writeStr("</strong>");
+          inStrong = false;
+        }
+        if (inHeading) {
+          writeStr("</h");
+          writeByte(static_cast<uint8_t>('0' + activeHeadingLevel));
+          writeByte('>');
+          inHeading = false;
+        }
+        if (!suppressLineBreak) writeStr("<br />");
         atLineStart = true;
+        lineHasText = false;
+        continue;
+      }
+
+      if (isMarkdown && atLineStart) {
+        if (headingLevel == 0 && b == '#') {
+          headingLevel = 1;
+          continue;
+        }
+        if (headingLevel > 0) {
+          if (b == '#' && headingLevel < 6) {
+            ++headingLevel;
+            continue;
+          }
+          if (b == ' ') {
+            activeHeadingLevel = headingLevel;
+            writeStr("<h");
+            writeByte(static_cast<uint8_t>('0' + activeHeadingLevel));
+            if (pageBreakBeforeHeading) {
+              writeStr(" style=\"page-break-before: always;\"");
+              pageBreakBeforeHeading = false;
+            }
+            writeByte('>');
+            inHeading = true;
+            headingLevel = 0;
+            atLineStart = false;
+            continue;
+          }
+          while (headingLevel-- > 0) writeByte('#');
+          headingLevel = 0;
+        }
+      }
+
+      if (isMarkdown && b == '\f') {
+        pageBreakBeforeHeading = true;
         continue;
       }
 
@@ -107,6 +181,26 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
       }
       atLineStart = false;
 
+      if (isMarkdown && b == '*') {
+        if (pendingAsterisk) {
+          writeStr(inStrong ? "</strong>" : "<strong>");
+          inStrong = !inStrong;
+          pendingAsterisk = false;
+          emphasisMarkerLine = false;
+          lineHasText = true;
+        } else {
+          pendingAsterisk = true;
+          emphasisMarkerLine = !lineHasText;
+        }
+        continue;
+      }
+      if (pendingAsterisk) {
+        writeStr(inEmphasis ? "</em>" : "<em>");
+        inEmphasis = !inEmphasis;
+        pendingAsterisk = false;
+      }
+      lineHasText = true;
+
       if (b == '&' || b == '<' || b == '>') {
         const char special = static_cast<char>(b);
         TxtToHtml::streamEscapedHtml(writeStr, std::string_view(&special, 1));
@@ -121,6 +215,23 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
   if (bytesRead < 0) {
     LOG_ERR("TXT", "Read error while streaming TXT/MD: %.*s", static_cast<int>(filename.size()), filename.data());
     return false;
+  }
+
+  if (headingLevel > 0) {
+    while (headingLevel-- > 0) writeByte('#');
+  }
+  if (pendingAsterisk) {
+    if (inEmphasis) {
+      writeStr("</em>");
+    } else {
+      writeByte('*');
+    }
+  }
+  if (inStrong) writeStr("</strong>");
+  if (inHeading) {
+    writeStr("</h");
+    writeByte(static_cast<uint8_t>('0' + activeHeadingLevel));
+    writeByte('>');
   }
 
   writeStr("\n</body>\n</html>\n");

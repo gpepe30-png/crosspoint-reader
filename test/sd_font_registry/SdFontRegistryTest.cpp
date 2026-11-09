@@ -1,4 +1,5 @@
 #include <HalStorage.h>
+#include <SdCardFont.h>
 #include <SdCardFontRegistry.h>
 #include <gtest/gtest.h>
 

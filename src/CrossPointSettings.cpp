@@ -101,6 +101,7 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (sdFontFamilyName[0] != '\0') {
     doc["sdFontFamilyName"] = sdFontFamilyName;
   }
+  doc["studyIndexFont"] = studyIndexFont;
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, save manually
   if (dictionaryName[0] != '\0') {
     doc["dictionaryName"] = dictionaryName;
@@ -286,6 +287,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     }
   }
   if (storedFontFamily != STORED_NOTOSANS) needsResave = true;
+  copyToField(studyIndexFont, doc["studyIndexFont"] | "", sizeof(studyIndexFont));
   // Dictionary folder name — uses dynamic getter/setter in SettingsList, load manually
   copyToField(dictionaryName, doc["dictionaryName"] | "", sizeof(dictionaryName));
   // Language -- stored as code string for stability across enum reorders.

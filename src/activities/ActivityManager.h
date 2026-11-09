@@ -96,6 +96,7 @@ class ActivityManager {
   void goToApps();
   void goToTrivia();
   void goToStudy();
+  void goToDailyReadings();
   void goToReader(std::string path, bool allowFastInitialRefresh = false);
   void goToSleep(bool fromTimeout = false);
   void goToBoot();

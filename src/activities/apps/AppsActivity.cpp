@@ -13,6 +13,8 @@ void AppsActivity::onEnter() {
   rowItems_[0].actionValue = 0;
   rowItems_[1].label = tr(STR_TRIVIA);
   rowItems_[1].actionValue = 1;
+  rowItems_[2].label = tr(STR_DAILY_READINGS);
+  rowItems_[2].actionValue = 2;
   UiListActivity::onEnter();
 }
 
@@ -39,5 +41,7 @@ void AppsActivity::activateIndex(const int index) {
     activityManager.goToStudy();
   } else if (index == 1) {
     activityManager.goToTrivia();
+  } else if (index == 2) {
+    activityManager.goToDailyReadings();
   }
 }

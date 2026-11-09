@@ -542,7 +542,6 @@ int TextSettingsActivity::listCount() const {
       return static_cast<int>(LayoutRow::Count);
     case Tab::Style:
       return static_cast<int>(StyleRow::Count);
-
     default:
       return 0;
   }

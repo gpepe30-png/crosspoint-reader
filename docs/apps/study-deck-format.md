@@ -236,7 +236,7 @@ to retrain the parameters.
     state         uint8     the state the card was in *before* the review
     elapsedDays   int16
     intervalDays  int32     days ahead, or negative seconds for a step
-    tookMs        uint32    zero: nothing here times the user
+    tookMs        uint32    milliseconds from showing the card to submitting the grade
     flags         uint8     bit 0: the user undid this review
     reserved      3 bytes
 
@@ -357,11 +357,11 @@ the device schedules with them from the next card.
     # Anki: Deck options > FSRS > Optimize
     anki_to_deck.py … --out …/mandarin     # new weights come back
 
-That loop is why `revlog.dat` writes `tookMs` as zero rather than as something
-plausible: answer time is one of the inputs an optimiser weighs, and inventing
-it would quietly bias the parameters the device then runs. `revlog.dat` is never truncated by the sync -- it is
-an append-only record rather than a queue, and it is the only copy of that
-history.
+The device measures `tookMs` from when the card is loaded until the grade is
+submitted, and Anki receives that duration in its revlog `time` field. Older
+records written before timing was added remain zero; their duration cannot be
+reconstructed. `revlog.dat` is never truncated by the sync -- it is an
+append-only record rather than a queue, and it is the only copy of that history.
 
 The fonts live under `/study/<deck>/fonts/` rather than `/.fonts/` deliberately. The
 font registry scans `/.fonts` and `/fonts`, and a family installed there

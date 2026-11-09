@@ -16,6 +16,7 @@
 #include "HapticFeedback.h"
 #include "OpdsServerStore.h"
 #include "apps/AppsActivity.h"
+#include "apps_local/readings/DailyReadingsActivity.h"
 #include "apps_local/study/StudyActivity.h"
 #include "activities/trivia/TriviaPackActivity.h"
 #include "boot_sleep/BootActivity.h"
@@ -349,6 +350,15 @@ void ActivityManager::goToStudy() {
   auto activity = StudyActivity::create(renderer, mappedInput);
   if (!activity) {
     LOG_ERR("ACT", "OOM: study activity");
+    return;
+  }
+  pushActivity(std::move(activity));
+}
+
+void ActivityManager::goToDailyReadings() {
+  auto activity = makeUniqueNoThrow<DailyReadingsActivity>(renderer, mappedInput);
+  if (!activity) {
+    LOG_ERR("ACT", "OOM: daily readings activity");
     return;
   }
   pushActivity(std::move(activity));

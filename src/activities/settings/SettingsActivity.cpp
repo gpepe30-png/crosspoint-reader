@@ -81,12 +81,45 @@ SettingsSection sectionFor(const SettingInfo& setting) {
 
 // Device-only action rows added per section, beyond the shared list.
 constexpr size_t EXTRA_ROWS_PER_SECTION = 6;
+
+SettingInfo buildStudyFontFamilySetting(const SdCardFontRegistry& registry) {
+  std::vector<std::string> familyNames;
+  std::vector<std::string> labels{I18N.get(StrId::STR_DEFAULT_VALUE)};
+  for (const auto& family : registry.getFamilies()) {
+    if (family.vector || family.files.size() < 4) continue;
+    familyNames.push_back(family.name);
+    labels.push_back(family.name);
+  }
+
+  SettingInfo setting;
+  setting.nameId = StrId::STR_STUDY_FONT_FAMILY;
+  setting.type = SettingType::ENUM;
+  setting.enumStringValues = std::move(labels);
+  setting.valueGetter = [familyNames]() -> uint8_t {
+    for (size_t i = 0; i < familyNames.size(); ++i) {
+      if (familyNames[i] == SETTINGS.studyIndexFont) return static_cast<uint8_t>(i + 1);
+    }
+    return 0;
+  };
+  setting.valueSetter = [familyNames](const uint8_t index) {
+    const char* family = index > 0 && index <= familyNames.size() ? familyNames[index - 1].c_str() : "";
+    std::snprintf(SETTINGS.studyIndexFont, sizeof(SETTINGS.studyIndexFont), "%s", family);
+  };
+  return setting;
+}
 }  // namespace
 
 void SettingsActivity::rebuildSettings() {
   // Pick up any fonts uploaded/deleted over the web server since the last
   // reader activity ran — otherwise the font-family picker shows stale list.
   sdFontSystem.refreshIfDirty();
+
+  if (section == SettingsSection::Study) {
+    settings.clear();
+    settings.push_back(buildStudyFontFamilySetting(sdFontSystem.registry()));
+    rebuildRowItems();
+    return;
+  }
 
   // Rescan /dictionaries on every rebuild: cheap (one directory listing) and
   // picks up dictionaries copied to the SD card since the last visit.

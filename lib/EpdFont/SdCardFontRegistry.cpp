@@ -91,6 +91,7 @@ bool pathFits(const SdCardFontFamilyInfo& family, const SdCardFontFileInfo& file
   char path[SdCardFontFamilyInfo::PATH_BUFFER_SIZE];
   return family.filePath(file, path, sizeof(path));
 }
+
 }  // namespace
 
 bool SdCardFontFamilyInfo::filePath(const SdCardFontFileInfo& file, char* out, const size_t outSize) const {

@@ -90,6 +90,7 @@ struct Recorder {
     int y = 0;
     std::string text;
     int font = 0;
+    bool bold = false;
   };
   struct Rule {
     int x = 0;
@@ -108,16 +109,20 @@ struct Recorder {
   int getTextWidth(int fontId, const char* text) const {
     return fontId == kRubyFont ? fakeWidth(text) / 2 : fakeWidth(text);
   }
-  void drawText(int fontId, int x, int y, const char* text, bool) const { texts.push_back({x, y, text, fontId}); }
+  int getBoldTextWidth(int fontId, const char* text) const { return getTextWidth(fontId, text); }
+  void drawText(int fontId, int x, int y, const char* text, bool) const { texts.push_back({x, y, text, fontId, false}); }
+  void drawBoldText(int fontId, int x, int y, const char* text, bool) const {
+    texts.push_back({x, y, text, fontId, true});
+  }
   void fillRect(int x, int y, int width, int, bool) const { rules.push_back({x, y, width}); }
 };
 
-Recorder draw(const char* text, int maxWidth, int spanStart, int spanLength, int rubyFont = 0) {
+Recorder draw(const char* text, int maxWidth, int spanStart, int spanLength, int rubyFont = 0, bool boldSpan = false) {
   Recorder target;
   char line[256];
   char scratch[256];
   study::drawWrappedMarked(target, 1, 100, maxWidth, text, spanStart, spanLength, false, line, sizeof(line), scratch,
-                           rubyFont);
+                           rubyFont, INT_MAX, nullptr, boldSpan);
   return target;
 }
 
@@ -134,6 +139,17 @@ void run() {
   check(study::bytesForCodepoints("a中b", 2) == 4, "two codepoints of 'a中b' are four bytes");
   check(study::bytesForCodepoints("abc", 99) == 3, "asking past the end clamps");
   check(study::bytesForCodepoints("", 3) == 0, "an empty string is zero bytes");
+
+  // --- bold spans ----------------------------------------------------------
+  {
+    const Recorder out = draw("aaa bbb", 80, 4, 3, 0, true);
+        check(out.texts.size() == 2, "bold span draws regular text and the selected run");
+        check(out.texts[0].text == "aaa ", "regular draw stops before the selected run");
+        check(out.texts[1].text == "bbb", "bold draw is limited to the selected run");
+        check(out.texts[1].bold, "selected run uses the actual bold face");
+        check(out.texts[1].x == out.texts[0].x + fakeWidth("aaa "),
+          "bold run starts where the regular prefix ends");
+  }
 
   // --- Latin wraps on spaces ------------------------------------------------
   {

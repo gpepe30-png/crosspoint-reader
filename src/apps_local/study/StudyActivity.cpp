@@ -7,12 +7,15 @@
 #include <esp_sntp.h>
 
 #include <algorithm>
+#include <climits>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 
 #include "../../SilentRestart.h"
 #include "../../activities/network/WifiSelectionActivity.h"
+#include "../../CrossPointSettings.h"
+#include "../../SdCardFontSystem.h"
 #include "../../components/UITheme.h"
 #include "../../util/QrUtils.h"
 #include "../ui/Toybox.h"
@@ -26,6 +29,30 @@
 #include "fontIds.h"
 
 namespace {
+
+class StudyTextTarget {
+ public:
+  explicit StudyTextTarget(const GfxRenderer& renderer) : renderer_(renderer) {}
+
+  int getScreenWidth() const { return renderer_.getScreenWidth(); }
+  int getTextHeight(const int fontId) const { return renderer_.getTextHeight(fontId); }
+  int getTextWidth(const int fontId, const char* text) const { return renderer_.getTextWidth(fontId, text); }
+  int getBoldTextWidth(const int fontId, const char* text) const {
+    return renderer_.getTextWidth(fontId, text, EpdFontFamily::BOLD);
+  }
+  void drawText(const int fontId, const int x, const int y, const char* text, const bool black) const {
+    renderer_.drawText(fontId, x, y, text, black);
+  }
+  void drawBoldText(const int fontId, const int x, const int y, const char* text, const bool black) const {
+    renderer_.drawText(fontId, x, y, text, black, EpdFontFamily::BOLD);
+  }
+  void fillRect(const int x, const int y, const int width, const int height, const bool black) const {
+    renderer_.fillRect(x, y, width, height, black);
+  }
+
+ private:
+  const GfxRenderer& renderer_;
+};
 
 // Where anki_to_deck.py and make_fonts.py put their output.
 // Where decks live. The directory name under /study is the tool's choice, not
@@ -102,6 +129,102 @@ uint32_t nextRandom(uint32_t& state) {
   state ^= state >> 17;
   state ^= state << 5;
   return state;
+}
+
+bool isPsalterIndex(const char* value) {
+  if (value == nullptr || value[0] < '0' || value[0] > '9') return false;
+  const char* component = value;
+  int separators = 0;
+  for (const char* cursor = value; *cursor != '\0'; ++cursor) {
+    const char ch = *cursor;
+    if (ch == '.') {
+      if (cursor == component) return false;
+      component = cursor + 1;
+      ++separators;
+    } else if (!((ch >= '0' && ch <= '9') || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z'))) {
+      return false;
+    }
+  }
+  return separators >= 4 && component != value && component[0] != '\0';
+}
+
+bool isPsalterHint(const char* value) {
+  if (value == nullptr) return false;
+  const char* separator = std::strchr(value, '.');
+  if (separator == nullptr || separator == value || separator[1] == '\0') return false;
+  for (const char* cursor = value; cursor < separator; ++cursor) {
+    if (*cursor < '0' || *cursor > '9') return false;
+  }
+  for (const char* cursor = separator + 1; *cursor != '\0'; ++cursor) {
+    if (!((*cursor >= '0' && *cursor <= '9') || (*cursor >= 'A' && *cursor <= 'Z'))) return false;
+  }
+  return true;
+}
+
+bool isPsalterSpace(const char value) { return value == ' ' || value == '\t' || value == '\r'; }
+
+bool parsePsalterNumber(const char*& cursor, const char* end, int& value) {
+  if (cursor == end || *cursor < '0' || *cursor > '9') return false;
+  value = 0;
+  do {
+    const int digit = *cursor - '0';
+    if (value > (INT_MAX - digit) / 10) return false;
+    value = value * 10 + digit;
+    ++cursor;
+  } while (cursor < end && *cursor >= '0' && *cursor <= '9');
+  return true;
+}
+
+bool psalterDetailsSpan(const char* index, const char* details, int& spanStart, int& spanLength) {
+  if (index == nullptr || details == nullptr) return false;
+  const char* finalDot = std::strrchr(index, '.');
+  if (finalDot == nullptr) return false;
+  const char* lineIndex = finalDot + 1;
+  int wantedLine = 0;
+  if (!parsePsalterNumber(lineIndex, lineIndex + std::strlen(lineIndex), wantedLine) || *lineIndex != '\0') {
+    return false;
+  }
+
+  const char* entry = details;
+  while (*entry != '\0') {
+    while (*entry == ',' || *entry == '\n' || isPsalterSpace(*entry)) ++entry;
+    if (*entry == '\0') break;
+
+    const char* entryEnd = entry;
+    while (*entryEnd != '\0' && *entryEnd != ',' && *entryEnd != '\n') ++entryEnd;
+    const char* key = entry;
+    int line = 0;
+    if (parsePsalterNumber(key, entryEnd, line) && line == wantedLine) {
+      while (key < entryEnd && isPsalterSpace(*key)) ++key;
+      if (key < entryEnd && *key == ':') {
+        ++key;
+        while (key < entryEnd && isPsalterSpace(*key)) ++key;
+        int wordCount = 0;
+        if (parsePsalterNumber(key, entryEnd, wordCount)) {
+          while (key < entryEnd && isPsalterSpace(*key)) ++key;
+          if (key == entryEnd) {
+            const char* codepoint = details;
+            spanStart = 0;
+            while (codepoint < entry) {
+              study::nextCodepoint(codepoint);
+              ++spanStart;
+            }
+            spanLength = static_cast<int>(key - entry);
+            return spanLength > 0;
+          }
+        }
+      }
+    }
+    entry = entryEnd;
+  }
+  return false;
+}
+
+bool isPsalterNote(const study::Note& note) {
+  const char* details = note.field(study::Field::Sentence);
+  return isPsalterIndex(note.field(study::Field::Headword)) &&
+         !note.empty(study::Field::Meaning) && isPsalterHint(note.field(study::Field::Reading)) &&
+         details != nullptr && std::strchr(details, ':') != nullptr;
 }
 
 }  // namespace
@@ -511,6 +634,7 @@ void StudyActivity::buildQueue() {
   queuePos_ = 0;
   dueTotal_ = 0;
   newTotal_ = 0;
+  pendingLearningTotal_ = 0;
   for (int& day : forecast_) day = 0;
 
   // Read cards.dat in chunks rather than record by record: 5001 records is
@@ -528,6 +652,7 @@ void StudyActivity::buildQueue() {
   // to contain.
   int dueSeen = 0;
   int newSeen = 0;
+  int pendingLearningSeen = 0;
   for (int base = 0; base < total; base += kChunkRecords) {
     const int count = (total - base) < kChunkRecords ? (total - base) : kChunkRecords;
     const uint32_t bytes = static_cast<uint32_t>(count) * study::kCardRecordSize;
@@ -545,12 +670,16 @@ void StudyActivity::buildQueue() {
         ++newSeen;
         continue;
       }
+      const bool learning = probe.state == static_cast<uint8_t>(study::State::Learning) ||
+                            probe.state == static_cast<uint8_t>(study::State::Relearning);
+      const bool due = study::Scheduler::isDue(probe, today_, minute);
+      if (learning && !due) ++pendingLearningSeen;
       // The forecast panel's data, from the pass that is already reading every
       // record. Anything overdue piles onto today, which is what the user is
       // actually looking at when they open the app.
       const int offset = probe.dueDay - today_;
       if (offset < studyui::kForecastDays) forecast_[offset < 0 ? 0 : offset] += 1;
-      if (study::Scheduler::isDue(probe, today_, minute)) ++dueSeen;
+      if (due) ++dueSeen;
     }
   }
   // What the deck screen promises has to be what a session will actually
@@ -567,6 +696,7 @@ void StudyActivity::buildQueue() {
   const int newCap = deck_.meta().newPerDay;
   dueTotal_ = dueSeen < dueCap ? dueSeen : dueCap;
   newTotal_ = newSeen < newCap ? newSeen : newCap;
+  pendingLearningTotal_ = pendingLearningSeen;
   // The queue itself is bounded too, and reviews are taken before new, so a
   // backlog past the queue's size eats into what new cards can be promised.
   if (dueTotal_ > kMaxQueue) dueTotal_ = kMaxQueue;
@@ -650,24 +780,20 @@ bool StudyActivity::takeNext() {
     return ok;
   }
 
-  // Main queue empty and something is still in a step: show the one closest to
-  // due rather than making the user wait out a ten-minute timer holding a
-  // device that cannot notify them.
-  if (best < 0 && learningCount_ > 0) {
-    best = 0;
-    for (int i = 1; i < learningCount_; ++i) {
-      const bool earlier =
-          learning_[i].dueDay < learning_[best].dueDay ||
-          (learning_[i].dueDay == learning_[best].dueDay && learning_[i].dueMinute < learning_[best].dueMinute);
-      if (earlier) best = i;
-    }
-  }
   if (best < 0) {
     took_ = Took::Nothing;
     return false;
   }
 
   currentIndex_ = learning_[best].index;
+  // A refresh after the step becomes due can also put this same card in the
+  // main queue. It is still one review, so remove that queued copy.
+  for (int i = queuePos_; i < queueCount_; ++i) {
+    if (queue_[i] != currentIndex_) continue;
+    for (int j = i; j + 1 < queueCount_; ++j) queue_[j] = queue_[j + 1];
+    --queueCount_;
+    break;
+  }
   learning_[best] = learning_[--learningCount_];
   took_ = Took::Learning;
   return loadCurrent();
@@ -679,6 +805,16 @@ bool StudyActivity::loadCurrent() {
   if (!deck_.loadCard(*cardSource_, currentIndex_, card_)) return false;
 
   face_ = Face::Question;
+  psalterCard_ = isPsalterNote(note_);
+  hintRevealed_ = false;
+  detailsExpanded_ = false;
+  if (psalterCard_) {
+    const char* cardText[] = {note_.field(study::Field::Headword), note_.field(study::Field::Meaning),
+                              note_.field(study::Field::Reading), note_.field(study::Field::Sentence)};
+    fonts_.loadIndexFonts(renderer, sdFontSystem.registry(), SETTINGS.studyIndexFont, cardText, 4);
+  } else {
+    fonts_.unloadIndexFonts(renderer);
+  }
 
   // The face changes per card. This is the feature: Mario learned to read in
   // one typeface and found the others hard afterwards, so the deck stops
@@ -719,11 +855,13 @@ bool StudyActivity::loadCurrent() {
   }
 
   scheduler_.preview(card_, today_, nowMinute(), preview_);
+  reviewStartedAtMs_ = millis();
   return true;
 }
 
 bool StudyActivity::persist(const int index, const study::CardState& card, const study::Rating rating,
-                            const study::Outcome& outcome, uint32_t& revlogOffset, bool& written) {
+                            const study::Outcome& outcome, const uint32_t tookMs, uint32_t& revlogOffset,
+                            bool& written) {
   revlogOffset = 0;
   written = false;
   bool ok = deck_.storeCard(*cardSource_, index, outcome.card);
@@ -763,8 +901,7 @@ bool StudyActivity::persist(const int index, const study::CardState& card, const
     record[17] = card.state;  // the state the card was in *before* the review
     std::memcpy(record + 18, &elapsed, 2);
     std::memcpy(record + 20, &interval, 4);
-    // tookMs is left zero: nothing here times the user, and inventing a
-    // plausible number would poison the data Anki reimports.
+    std::memcpy(record + 24, &tookMs, sizeof(tookMs));
     // Append on the record grid, never after a half-written tail. A power cut
     // or an unclean eject can leave revlog.dat a non-multiple of the record
     // size; appending at that length puts every later record off-grid, so the
@@ -798,6 +935,7 @@ void StudyActivity::flushWrites() {
 }
 
 void StudyActivity::grade(const study::Rating rating) {
+  const uint32_t tookMs = millis() - reviewStartedAtMs_;
   const study::Outcome outcome = scheduler_.answer(card_, rating, today_, nowMinute());
 
   // Everything undo needs, taken before anything moves. card_ is the state as
@@ -805,10 +943,12 @@ void StudyActivity::grade(const study::Rating rating) {
   undo_ = Undo{};
   undo_.index = currentIndex_;
   undo_.before = card_;
+  undo_.reviewStartedAtMs = reviewStartedAtMs_;
   undo_.reviewed = reviewedThisSession_;
   undo_.again = againThisSession_;
 
-  if (!persist(currentIndex_, card_, rating, outcome, undo_.revlogOffset, undo_.revlogWritten)) writeFailed_ = true;
+  if (!persist(currentIndex_, card_, rating, outcome, tookMs, undo_.revlogOffset, undo_.revlogWritten))
+    writeFailed_ = true;
   ++reviewedThisSession_;
   if (rating == study::Rating::Again) ++againThisSession_;
 
@@ -900,6 +1040,7 @@ void StudyActivity::undo() {
   currentIndex_ = undo_.index;
   const bool loaded = loadCurrent();
   if (loaded) {
+    reviewStartedAtMs_ = undo_.reviewStartedAtMs;
     // Back on the answer, not the question: the user is here to change a grade,
     // and making them reveal the card again would be a step they did not ask
     // for.
@@ -1046,9 +1187,22 @@ void StudyActivity::loop() {
   }
 
   if (view_ == View::Card) {
+    if (psalterCard_ && face_ == Face::Answer && !note_.empty(study::Field::Sentence) &&
+        mappedInput.wasReleased(MappedInputManager::Button::Power)) {
+      detailsExpanded_ = !detailsExpanded_;
+      requestUpdate();
+      return;
+    }
     if (face_ == Face::Question) {
       if (undo_.valid && mappedInput.wasReleased(MappedInputManager::Button::Left)) {
         undo();
+        return;
+      }
+      if (psalterCard_ && !note_.empty(study::Field::Reading) &&
+          (mappedInput.wasReleased(MappedInputManager::Button::Right) ||
+           mappedInput.wasReleased(MappedInputManager::Button::Power))) {
+        hintRevealed_ = !hintRevealed_;
+        requestUpdate();
         return;
       }
       if (cardHasImage() && mappedInput.wasReleased(MappedInputManager::Button::Right)) {
@@ -1058,12 +1212,30 @@ void StudyActivity::loop() {
       }
       if (mappedInput.wasReleased(MappedInputManager::Button::Down) ||
           mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
-        selectedRating_ = 2;
+        selectedRating_ = 3;
         face_ = Face::Answer;
         requestUpdate();
         return;
       }
     } else {
+      constexpr unsigned long kRatingHoldMs = 600;
+      using Button = MappedInputManager::Button;
+      int heldChoice = -1;
+      if (mappedInput.wasLongPressed(Button::Back, kRatingHoldMs)) {
+        heldChoice = 0;
+      } else if (mappedInput.wasLongPressed(Button::Confirm, kRatingHoldMs)) {
+        heldChoice = 1;
+      } else if (mappedInput.wasLongPressed(Button::Left, kRatingHoldMs)) {
+        heldChoice = 2;
+      } else if (mappedInput.wasLongPressed(Button::Right, kRatingHoldMs)) {
+        heldChoice = 3;
+      }
+      if (heldChoice >= 0) {
+        selectedRating_ = heldChoice;
+        grade(static_cast<study::Rating>(heldChoice + 1));
+        return;
+      }
+
       int bottomChoice = -1;
       if (bottomBack) {
         bottomChoice = 0;
@@ -1103,8 +1275,72 @@ int StudyActivity::drawWrappedUnderlined(const int fontId, const int y, const in
   return drawWrappedMarked(fontId, y, maxWidth, text, spanStart, spanLength, measureOnly);
 }
 
+int StudyActivity::drawWrappedMixedBold(const int fontId, const int spanFontId, const int y, const int maxWidth,
+                                       const char* text, const int spanStart, const int spanLength,
+                                       const bool measureOnly) const {
+  if (text == nullptr || *text == '\0') return y;
+
+  char line[kLineBytes];
+  char prefix[kLineBytes];
+  char marked[kLineBytes];
+  char suffix[kLineBytes];
+  const int spanStartByte = study::bytesForCodepoints(text, spanStart);
+  const int spanEndByte = study::bytesForCodepoints(text, spanStart + spanLength);
+  study::copyRun(text + spanStartByte, spanEndByte - spanStartByte, marked, sizeof(marked));
+  const int baseHeight = renderer.getTextHeight(fontId);
+  const int spanHeight = renderer.getTextHeight(spanFontId);
+  const int lineHeight = std::max(baseHeight, spanHeight);
+  const int baseBaseline = renderer.getFontAscenderSize(fontId);
+  const int spanBaseline = renderer.getFontAscenderSize(spanFontId);
+  int cursorY = y;
+
+  const auto measureMixed = [&](const char* candidate) {
+    const char* match = marked[0] != '\0' ? std::strstr(candidate, marked) : nullptr;
+    if (match == nullptr) return renderer.getTextWidth(fontId, candidate);
+    study::copyRun(candidate, static_cast<int>(match - candidate), prefix, sizeof(prefix));
+    const char* after = match + std::strlen(marked);
+    study::copyRun(after, static_cast<int>(std::strlen(after)), suffix, sizeof(suffix));
+    return renderer.getTextWidth(fontId, prefix) + renderer.getTextWidth(spanFontId, marked, EpdFontFamily::BOLD) +
+           renderer.getTextWidth(fontId, suffix);
+  };
+
+  study::wrapText(text, maxWidth, line, sizeof(line), measureMixed, [&](const study::WrappedLine& laid) {
+    const bool past = cursorY + lineHeight > clipBottom_;
+    if (past) clipped_ = true;
+    if (!measureOnly && !past) {
+      int from = 0;
+      int to = 0;
+      if (study::spanOnLine(laid, spanStart, spanLength, from, to)) {
+        const int fromBytes = study::bytesForCodepoints(laid.text, from);
+        const int toBytes = study::bytesForCodepoints(laid.text, to);
+        study::copyRun(laid.text, fromBytes, prefix, sizeof(prefix));
+        study::copyRun(laid.text + fromBytes, toBytes - fromBytes, marked, sizeof(marked));
+        const char* after = laid.text + toBytes;
+        study::copyRun(after, static_cast<int>(std::strlen(after)), suffix, sizeof(suffix));
+        const int prefixWidth = renderer.getTextWidth(fontId, prefix);
+        const int markedWidth = renderer.getTextWidth(spanFontId, marked, EpdFontFamily::BOLD);
+        const int suffixWidth = renderer.getTextWidth(fontId, suffix);
+        int x = (renderer.getScreenWidth() - prefixWidth - markedWidth - suffixWidth) / 2;
+        const int baseY = cursorY + spanBaseline - baseBaseline;
+        if (prefix[0] != '\0') renderer.drawText(fontId, x, baseY, prefix, true);
+        x += prefixWidth;
+        renderer.drawText(spanFontId, x, cursorY, marked, true, EpdFontFamily::BOLD);
+        x += markedWidth;
+        if (suffix[0] != '\0') renderer.drawText(fontId, x, baseY, suffix, true);
+      } else {
+        const int width = renderer.getTextWidth(fontId, laid.text);
+        renderer.drawText(fontId, (renderer.getScreenWidth() - width) / 2,
+                          cursorY + spanBaseline - baseBaseline, laid.text, true);
+      }
+    }
+    cursorY += lineHeight;
+  });
+  return cursorY;
+}
+
 int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int maxWidth, const char* text,
-                                     const int spanStart, const int spanLength, const bool measureOnly) const {
+                                     const int spanStart, const int spanLength, const bool measureOnly,
+                                     const bool boldSpan) const {
   // The two buffers are the caller's so nothing here allocates and the sizes
   // stay visible next to the stack budget they count against.
   char line[kLineBytes];
@@ -1112,8 +1348,59 @@ int StudyActivity::drawWrappedMarked(const int fontId, const int y, const int ma
   // Zero unless this deck shipped a furigana cut, in which case the readings
   // are drawn above their base rather than lost.
   const int rubyFontId = fontsReady_ ? fonts_.rubyFontId() : 0;
-  return study::drawWrappedMarked(renderer, fontId, y, maxWidth, text, spanStart, spanLength, measureOnly, line,
-                                  kLineBytes, scratch, rubyFontId, clipBottom_, &clipped_);
+  const StudyTextTarget target(renderer);
+  return study::drawWrappedMarked(target, fontId, y, maxWidth, text, spanStart, spanLength, measureOnly, line,
+                                  kLineBytes, scratch, rubyFontId, clipBottom_, &clipped_, boldSpan);
+}
+
+int StudyActivity::drawPsalterIndex(const int y, const char* text, const bool measureOnly) const {
+  if (text == nullptr) return y;
+  const char* thirdDot = nullptr;
+  int separators = 0;
+  for (const char* cursor = text; *cursor != '\0'; ++cursor) {
+    if (*cursor == '.' && ++separators == 3) {
+      thirdDot = cursor;
+      break;
+    }
+  }
+  const char* lastDot = std::strrchr(text, '.');
+  const char* beforeLastDot = nullptr;
+  if (lastDot != nullptr) {
+    for (const char* cursor = lastDot; cursor > text; --cursor) {
+      if (cursor[-1] == '.') {
+        beforeLastDot = cursor - 1;
+        break;
+      }
+    }
+  }
+  if (thirdDot == nullptr || beforeLastDot == nullptr || beforeLastDot < thirdDot) {
+    return drawWrapped(sized(kReadingFontId), y, renderer.getScreenWidth() - 2 * toybox::kMargin, text, measureOnly);
+  }
+
+  char prefix[kLineBytes];
+  char middle[kLineBytes];
+  study::copyRun(text, static_cast<int>(thirdDot - text), prefix, sizeof(prefix));
+  study::copyRun(thirdDot, static_cast<int>(beforeLastDot + 1 - thirdDot), middle, sizeof(middle));
+  const char* finalFields = beforeLastDot + 1;
+  const int prefixFont = fonts_.indexFontId(0) != 0 ? fonts_.indexFontId(0) : sized(kSmallFontId);
+  const int suffixFont = fonts_.indexFontId(1) != 0 ? fonts_.indexFontId(1) : sized(kReadingFontId);
+  const int finalFont = fonts_.indexFontId(2) != 0 ? fonts_.indexFontId(2) : sized(kReadingFontId);
+  const int prefixWidth = renderer.getTextWidth(prefixFont, prefix);
+  const int middleWidth = renderer.getTextWidth(suffixFont, middle);
+  const int finalWidth = renderer.getTextWidth(finalFont, finalFields, EpdFontFamily::BOLD);
+  const int prefixHeight = renderer.getTextHeight(prefixFont);
+  const int suffixHeight = renderer.getTextHeight(suffixFont);
+  const int finalHeight = renderer.getTextHeight(finalFont);
+  const int tallest = std::max(prefixHeight, std::max(suffixHeight, finalHeight));
+  const int x = (renderer.getScreenWidth() - prefixWidth - middleWidth - finalWidth) / 2;
+
+  if (!measureOnly) {
+    renderer.drawText(prefixFont, x, y + (tallest - prefixHeight) / 2, prefix, true);
+    renderer.drawText(suffixFont, x + prefixWidth, y + (tallest - suffixHeight) / 2, middle, true);
+    renderer.drawText(finalFont, x + prefixWidth + middleWidth, y + (tallest - finalHeight) / 2, finalFields, true,
+                      EpdFontFamily::BOLD);
+  }
+  return y + tallest;
 }
 
 bool StudyActivity::fitsAsDrawn(const int fontId, const char* text, const int maxWidth) const {
@@ -1239,39 +1526,61 @@ int StudyActivity::layoutVocabCard(const Rect& body, const bool measureOnly) {
   // Measured, not guessed: tools_local/study/measure_layout.py.
   int y = body.y + 8;
 
-  y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
-  if (answer) {
-    y += 6;
-    y = drawWrapped(sized(kReadingFontId), y, maxWidth, note_.field(study::Field::Reading), measureOnly);
-    y += 2;
-    y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
-    y = drawWrapped(sized(kSmallFontId), y, maxWidth, note_.field(study::Field::PartOfSpeech), measureOnly);
+  if (psalterCard_) {
+    y = drawPsalterIndex(y, note_.field(study::Field::Headword), measureOnly);
+  } else {
+    y = drawWrapped(sized(headwordFont), y, maxWidth, note_.field(study::Field::Headword), measureOnly);
   }
-
-  // The sentence follows the deck's own habit: an HSK card wants it in front of
-  // you while you read, a vocabulary card wants it kept back with the answer it
-  // half gives away. Both used to show it on the question face.
-  if (!note_.empty(study::Field::Sentence) && (answer || deck_.meta().sentenceOnQuestion)) {
-    // The rule, as the Anki template has it: the word above, the sentence it
-    // lives in below. Hairline against the footer's kRule, so the two dividers
-    // read as different weights rather than competing.
-    y += 20;
-    if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
-    y += 20;
-    // Underlined only on the answer face: on the question face the emphasis
-    // is over the very word being asked for, and drawing it there points at
-    // the answer.
+  if (psalterCard_) {
     if (answer) {
-      y = drawWrappedUnderlined(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence),
-                                note_.emphasisOffset(), note_.emphasisLength(), measureOnly);
-    } else {
-      y = drawWrapped(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
+      y += 20;
+      if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
+      y += 20;
+      const int lineFont = fonts_.indexFontId(1) != 0 ? fonts_.indexFontId(1) : sized(kMeaningFontId);
+      y = drawWrapped(lineFont, y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
+      if (detailsExpanded_) {
+        y += 14;
+        const int mediumFont = fonts_.indexFontId(0) != 0 ? fonts_.indexFontId(0) : sized(kMeaningFontId);
+        const int smallFont = fonts_.detailsFontId() != 0 ? fonts_.detailsFontId() : sized(kSmallFontId);
+        const char* details = note_.field(study::Field::Sentence);
+        int spanStart = 0;
+        int spanLength = 0;
+        psalterDetailsSpan(note_.field(study::Field::Headword), details, spanStart, spanLength);
+        y = drawWrappedMixedBold(smallFont, mediumFont, y, maxWidth, details, spanStart, spanLength, measureOnly);
+      }
+    } else if (hintRevealed_) {
+      y += 18;
+      const int mediumFont = fonts_.indexFontId(0) != 0 ? fonts_.indexFontId(0) : sized(kMeaningFontId);
+      y = drawWrapped(mediumFont, y, maxWidth, note_.field(study::Field::Reading), measureOnly);
     }
+  } else {
     if (answer) {
       y += 6;
-      y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::SentenceReading), measureOnly);
+      y = drawWrapped(sized(kReadingFontId), y, maxWidth, note_.field(study::Field::Reading), measureOnly);
       y += 2;
-      y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::SentenceMeaning), measureOnly);
+      y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::Meaning), measureOnly);
+      y = drawWrapped(sized(kSmallFontId), y, maxWidth, note_.field(study::Field::PartOfSpeech), measureOnly);
+    }
+
+    // The sentence follows the deck's own habit: an HSK card wants it in front of
+    // you while you read, a vocabulary card wants it kept back with the answer it
+    // half gives away. Both used to show it on the question face.
+    if (!note_.empty(study::Field::Sentence) && (answer || deck_.meta().sentenceOnQuestion)) {
+      y += 20;
+      if (!measureOnly) toybox::rule(renderer, y, toybox::kHairline);
+      y += 20;
+      if (answer) {
+        y = drawWrappedUnderlined(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence),
+                                  note_.emphasisOffset(), note_.emphasisLength(), measureOnly);
+      } else {
+        y = drawWrapped(sized(sentenceFont), y, maxWidth, note_.field(study::Field::Sentence), measureOnly);
+      }
+      if (answer) {
+        y += 6;
+        y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::SentenceReading), measureOnly);
+        y += 2;
+        y = drawWrapped(sized(kMeaningFontId), y, maxWidth, note_.field(study::Field::SentenceMeaning), measureOnly);
+      }
     }
   }
 
@@ -1529,6 +1838,7 @@ void StudyActivity::buildDeckModel(studyui::DeckModel& out) const {
   out.name = deck_.meta().name;
   out.due = dueTotal_;
   out.fresh = newTotal_;
+  out.learning = pendingLearningTotal_;
   out.total = deck_.noteCount();
   out.reviewed = reviewedThisSession_;
   out.recalled = reviewedThisSession_ - againThisSession_;
@@ -1818,7 +2128,9 @@ void StudyActivity::render(RenderLock&&) {
   if (view_ == View::Card && face_ == Face::Question) {
     confirmLabel = "Reveal";
     previousLabel = undo_.valid ? "Undo" : "";
-    nextLabel = cardHasImage() ? "Photo" : "";
+    nextLabel = psalterCard_ && !note_.empty(study::Field::Reading)
+                    ? (hintRevealed_ ? "Hide hint" : "Hint")
+                    : cardHasImage() ? "Photo" : "";
   } else if (view_ == View::Card) {
     confirmLabel = "Hard";
     previousLabel = "Good";
@@ -2034,9 +2346,9 @@ bool StudyActivity::runDeckPicker() {
       return false;
     }
     const int selectionCount = picker_.count + 1;  // one additional position for SYNC THESE
-    const bool sideSubmit = mappedInput.wasReleased(MappedInputManager::Button::Down);
-    const bool movePrevious = !sideSubmit && mappedInput.wasReleased(MappedInputManager::Button::NavPrevious);
-    const bool moveNext = !sideSubmit && mappedInput.wasReleased(MappedInputManager::Button::NavNext);
+    const bool sideSync = mappedInput.wasReleased(MappedInputManager::Button::Down);
+    const bool movePrevious = !sideSync && mappedInput.wasReleased(MappedInputManager::Button::NavPrevious);
+    const bool moveNext = !sideSync && mappedInput.wasReleased(MappedInputManager::Button::NavNext);
     if (movePrevious || moveNext) {
       picker_.selectedIndex = (picker_.selectedIndex + (movePrevious ? selectionCount - 1 : 1)) % selectionCount;
       if (picker_.selectedIndex < picker_.count) {
@@ -2048,7 +2360,11 @@ bool StudyActivity::runDeckPicker() {
       requestUpdateAndWait();
       continue;
     }
-    if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm) && !sideSubmit)
+    if (sideSync) {
+      if (picker_.chosenCount > 0) break;
+      continue;
+    }
+    if (!mappedInput.wasReleased(MappedInputManager::Button::Confirm))
       continue;
     if (picker_.selectedIndex == picker_.count) {
       if (picker_.chosenCount > 0) break;
